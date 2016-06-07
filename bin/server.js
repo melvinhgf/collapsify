@@ -6,6 +6,7 @@ var systemdSocket = require('systemd-socket');
 var bole = require('bole');
 var summary = require('server-summary');
 var httpNdjson = require('http-ndjson');
+var Kardia = require('kardia');
 
 var allowedArgs = [{
   name: 'forbidden',
@@ -21,6 +22,10 @@ var allowedArgs = [{
   abbr: 'p',
   default: 8020,
   help: 'Port that Collapsify should listen on. Ignored when running as a systemd service.'
+}, {
+  name: 'metrics-port',
+  default: 12900,
+  help: 'Port for system metrics'
 }, {
   name: 'verbose',
   abbr: 'V',
@@ -43,6 +48,11 @@ var argv = require('minimist')(process.argv.slice(2), {
   alias: clopts.alias(),
   boolean: clopts.boolean(),
   default: clopts.default()
+});
+
+var kardia = Kardia.start({
+  name: 'collapsify',
+  port: argv['metric-port']
 });
 
 var VERSION = require('../lib/version');
@@ -81,7 +91,9 @@ var server = http.createServer(function (req, res) {
   var queries = url.parse(req.url, true).query;
 
   if (queries && queries.url) {
+    kardia.increment('collapsify_request', 1);
     collapsify(queries.url, argv).done(function (result) {
+      kardia.increment('collapsify_success', 1);
       res.statusCode = 200;
       res.setHeader('content-type', 'text/html; charset=utf-8');
       res.end(result);
@@ -89,6 +101,7 @@ var server = http.createServer(function (req, res) {
         url: queries.url
       }, 'Collapsify succeeded.');
     }, function (err) {
+      kardia.increment('collapsify_failure', 1);
       res.statusCode = 500;
       res.end('Failed to collapsify. ' + err.message);
       logger.info(err, {
